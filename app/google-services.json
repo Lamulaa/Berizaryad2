@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "61225491341",
+    "project_id": "beri-zaryad",
+    "storage_bucket": "beri-zaryad.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:61225491341:android:766b3c0d1fbc9244457bc4",
+        "android_client_info": {
+          "package_name": "com.example.berizaryad"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDK_AOJ5QL2Hld5MWidbh1Oms4vRCa7aOc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
