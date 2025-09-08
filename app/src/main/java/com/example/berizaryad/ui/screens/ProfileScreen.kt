@@ -3,41 +3,35 @@ package com.example.berizaryad.ui.screens
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.example.berizaryad.viewmodel.AuthViewModel
+import com.google.firebase.auth.FirebaseAuth
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
-    onBack: () -> Unit, // Эта функция должна привести к переходу на предыдущий экран или экран авторизации
-    authViewModel: AuthViewModel
+    auth: FirebaseAuth,
+    onLogout: () -> Unit
 ) {
-    val currentUser by authViewModel.currentUser.collectAsState()
-    var fio by remember { mutableStateOf(currentUser?.fio ?: "") }
-    var isUpdating by remember { mutableStateOf(false) }
+    val currentUser = auth.currentUser
+    var userEmail by remember { mutableStateOf("") }
+    var userPhone by remember { mutableStateOf("") }
 
-    // Наблюдаем за состоянием пользователя. Если он стал null, переходим назад.
+    // Получаем информацию о пользователе
     LaunchedEffect(currentUser) {
-        if (currentUser == null) {
-            // Это сработает, если ViewModel обновит состояние после logout()
-            onBack()
-        }
+        userEmail = currentUser?.email ?: "Неизвестный email"
+        // Предполагаем, что телефон хранится в email до символа '@'
+        userPhone = currentUser?.email?.substringBefore("@") ?: "Неизвестный телефон"
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Профиль") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Назад")
-                    }
-                }
+                title = { Text("Профиль") }
             )
         }
     ) { paddingValues ->
@@ -48,66 +42,47 @@ fun ProfileScreen(
                 .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = "Информация о пользователе",
-                style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.padding(bottom = 32.dp)
-            )
-
-            OutlinedTextField(
-                value = currentUser?.phone ?: "",
-                onValueChange = {},
-                label = { Text("Телефон") },
-                enabled = false,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            OutlinedTextField(
-                value = fio,
-                onValueChange = { fio = it },
-                label = { Text("ФИО") },
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            Button(
-                onClick = {
-                    isUpdating = true
-                    authViewModel.updateFio(fio) {
-                        isUpdating = false
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isUpdating
+            // Аватар пользователя (заглушка)
+            Card(
+                modifier = Modifier.size(100.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
-                if (isUpdating) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = "Аватар",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(60.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
                 }
-                Text("Сохранить")
             }
+            Spacer(modifier = Modifier.height(24.dp))
 
-            Spacer(modifier = Modifier.height(16.dp))
+            // Информация о пользователе
+            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.outlinedCardColors()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text(
+                        text = "Информация о пользователе",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(text = "Email: $userEmail")
+                    Text(text = "Телефон: $userPhone")
+                    // Роль можно добавить, если она будет храниться в Firestore
+                    // Text(text = "Роль: ${userRole ?: 'Не определена'}")
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // Кнопка "Выйти"
+            // Кнопка выхода
             Button(
-                onClick = {
-                    // Вызываем logout в ViewModel
-                    authViewModel.logout()
-                    // onBack() может быть вызван LaunchedEffect выше или напрямую здесь
-                    // onBack()
-                },
+                onClick = onLogout,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
             ) {
-                Text("Выйти", color = MaterialTheme.colorScheme.onError)
+                Icon(Icons.Default.Logout, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Выйти")
             }
         }
     }

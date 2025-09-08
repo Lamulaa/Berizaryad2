@@ -1,3 +1,4 @@
+// Berizaryad/app/src/main/java/com/example/berizaryad/ui/theme/Type.kt
 package com.example.berizaryad.ui.theme
 
 import androidx.compose.material3.Typography

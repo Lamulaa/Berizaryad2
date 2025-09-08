@@ -8,21 +8,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import com.example.berizaryad.navigation.AppNavigation
 import com.example.berizaryad.ui.theme.BeriZaryadTheme
 import com.google.firebase.auth.FirebaseAuth
+import com.example.berizaryad.viewmodel.AuthViewModel
+import com.example.berizaryad.viewmodel.StationViewModel
 
 class MainActivity : ComponentActivity() {
+    private lateinit var auth: FirebaseAuth
+    private lateinit var authViewModel: AuthViewModel
+    private lateinit var stationViewModel: StationViewModel
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Определяем начальный маршрут
-        val currentUser = FirebaseAuth.getInstance().currentUser
-        val startDestination = if (currentUser != null) {
-            "search" // Если авторизован, переходим к главному экрану
-        } else {
-            "auth" // Если нет - к экрану авторизации
-        }
+        auth = FirebaseAuth.getInstance()
+        authViewModel = AuthViewModel()
+        stationViewModel = StationViewModel()
 
         setContent {
             BeriZaryadTheme {
@@ -30,7 +31,8 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    AppNavigation(startDestination = startDestination)
+                    // Передаем необходимые ViewModel'ы в навигацию
+                    AppNavigation(auth, authViewModel, stationViewModel)
                 }
             }
         }

@@ -1,5 +1,5 @@
-// Berizaryad/app/src/main/java/com/example/berizaryad/navigation/AppNavigation.kt
-package com.example.berizaryad.navigation
+// Berizaryad/app/src/main/java/com/example/berizaryad/AppNavigation.kt
+package com.example.berizaryad
 
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavType
@@ -7,72 +7,60 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.example.berizaryad.ui.screens.AuthScreen
-import com.example.berizaryad.ui.screens.ProfileScreen
+import com.example.berizaryad.ui.screens.AuthScreen // Убедитесь, что импорт правильный
 import com.example.berizaryad.ui.screens.SearchStationScreen
 import com.example.berizaryad.ui.screens.StationInfoScreen
-import com.example.berizaryad.ui.screens.StationListScreen
+import com.example.berizaryad.ui.screens.ProfileScreen
 import com.example.berizaryad.viewmodel.AuthViewModel
 import com.example.berizaryad.viewmodel.StationViewModel
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
 
 @Composable
-fun AppNavigation(startDestination: String) {
+fun AppNavigation(
+    auth: FirebaseAuth,
+    authViewModel: AuthViewModel,
+    stationViewModel: StationViewModel
+) {
     val navController = rememberNavController()
-    val auth = FirebaseAuth.getInstance()
-    val db = FirebaseFirestore.getInstance()
-    val authViewModel = AuthViewModel(auth, db)
-    val stationViewModel = StationViewModel(db)
 
-    NavHost(navController = navController, startDestination = startDestination) {
+    NavHost(navController = navController, startDestination = "auth") {
         composable("auth") {
+            // Передаем ViewModel в AuthScreen
             AuthScreen(
-                onNavigateToSearch = {
+                onLoginSuccess = {
+                    // После успешного логина переходим к поиску
                     navController.navigate("search") {
                         popUpTo("auth") { inclusive = true }
                     }
-                }
+                },
+                authViewModel = authViewModel // Передаем ViewModel
             )
         }
 
         composable("search") {
             SearchStationScreen(
-                onNavigateToStationList = { navController.navigate("station_list") },
-                onNavigateToProfile = { navController.navigate("profile") },
-                onLoginClick = { navController.navigate("auth") },
-                authViewModel = authViewModel,
-                // Передаем функцию навигации к найденной станции, преобразуя String в Long
-                onNavigateToFoundStation = { stationIdString ->
-                    val idAsLong = stationIdString.toLongOrNull()
-                    if (idAsLong != null) {
-                        navController.navigate("station_info/$idAsLong")
-                    } else {
-                        // Обработка ошибки: неверный формат ID
-                    }
+                onStationSelected = { stationId ->
+                    // Передаем ID станции (Long) в экран информации
+                    navController.navigate("station_info/$stationId")
+                },
+                stationViewModel = stationViewModel,
+                onNavigateToProfile = {
+                    navController.navigate("profile")
                 }
             )
         }
 
-        composable("station_list") {
-            StationListScreen(
-                // Изменено: преобразуем Long в String для навигации
-                onStationClick = { stationIdLong -> navController.navigate("station_info/$stationIdLong") },
-                onBack = { navController.popBackStack() },
-                stationViewModel = stationViewModel
-            )
-        }
-
-        // Маршрут для информации о станции с аргументом Long
+        // Маршрут для экрана информации о станции, принимающий Long ID
         composable(
             "station_info/{stationId}",
             arguments = listOf(navArgument("stationId") { type = NavType.LongType }) // Указываем тип Long
         ) { backStackEntry ->
-            // Получаем Long напрямую
             val stationId = backStackEntry.arguments?.getLong("stationId") ?: 0L
             StationInfoScreen(
-                stationId = stationId, // Передаем Long
-                onBack = { navController.popBackStack() },
+                stationId = stationId, // Передаем Long ID
+                onBack = {
+                    navController.popBackStack()
+                },
                 stationViewModel = stationViewModel,
                 authViewModel = authViewModel
             )
@@ -80,8 +68,13 @@ fun AppNavigation(startDestination: String) {
 
         composable("profile") {
             ProfileScreen(
-                onBack = { navController.popBackStack() },
-                authViewModel = authViewModel
+                auth = auth,
+                onLogout = {
+                    auth.signOut()
+                    navController.navigate("auth") {
+                        popUpTo("search") { inclusive = true }
+                    }
+                }
             )
         }
     }

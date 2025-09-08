@@ -1,8 +1,9 @@
+// Berizaryad/settings.gradle.kts
 pluginManagement {
     repositories {
-        gradlePluginPortal()
         google()
         mavenCentral()
+        gradlePluginPortal()
     }
 }
 dependencyResolutionManagement {
@@ -13,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Berizaryad"
+rootProject.name = "BeriZaryad"
 include(":app")

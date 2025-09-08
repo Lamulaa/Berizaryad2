@@ -1,7 +1,9 @@
+// Berizaryad/app/src/main/java/com/example/berizaryad/ui/theme/Color.kt
 package com.example.berizaryad.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
+// Вы можете настроить эти цвета под ваш бренд
 val Purple80 = Color(0xFFD0BCFF)
 val PurpleGrey80 = Color(0xFFCCC2DC)
 val Pink80 = Color(0xFFEFB8C8)
@@ -10,7 +12,6 @@ val Purple40 = Color(0xFF6650a4)
 val PurpleGrey40 = Color(0xFF625b71)
 val Pink40 = Color(0xFF7D5260)
 
-// Определяем кастомные цвета для статусов
-val StatusGreen = Color(0xFF2E7D32) // Темно-зеленый
-val StatusRed = Color.Red
-val StatusOrange = Color(0xFFFFA500) // Оранжевый
+// Дополнительные цвета для приложения
+val PrimaryGreen = Color(0xFF4CAF50) // Основной зеленый
+val UrgentRed = Color(0xFFF44336)    // Цвет для "Срочно"

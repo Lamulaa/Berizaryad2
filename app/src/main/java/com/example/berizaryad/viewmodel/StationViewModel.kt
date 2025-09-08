@@ -4,339 +4,380 @@ package com.example.berizaryad.viewmodel
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.berizaryad.data.Comment
 import com.example.berizaryad.data.StationData
+import com.google.firebase.Timestamp
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.storage.FirebaseStorage
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import com.google.firebase.firestore.toObject
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
-import java.util.*
+import java.util.Date
 
-class StationViewModel(private val db: FirebaseFirestore) : ViewModel() {
+/**
+ * ViewModel для управления данными станций.
+ * Отвечает за загрузку, обновление и обслуживание станций.
+ */
+class StationViewModel : ViewModel() {
 
-    private val _stations = MutableStateFlow<List<StationData>>(emptyList())
-    val stations: StateFlow<List<StationData>> = _stations
+    private val db = FirebaseFirestore.getInstance()
+    private val auth = FirebaseAuth.getInstance()
+    private val currentUserPhone: String
+        get() = auth.currentUser?.phoneNumber ?: ""
 
-    private val _station = MutableStateFlow<StationData?>(null)
-    val station: StateFlow<StationData?> = _station
+    companion object {
+        private const val TAG = "StationViewModel"
+    }
 
-    private val _errorMessage = MutableStateFlow<String?>(null)
-    val errorMessage: StateFlow<String?> = _errorMessage
-
-    private val _searchResult = MutableStateFlow<StationData?>(null)
-    val searchResult: StateFlow<StationData?> = _searchResult
-
-    // Функция для загрузки ВСЕХ станций
-    fun loadAllStations(onComplete: (Boolean) -> Unit) {
+    /**
+     * Загружает список всех станций из Firestore.
+     * @param callback Функция обратного вызова. Принимает список станций (List<StationData>) и сообщение об ошибке (String?).
+     */
+    fun loadStations(
+        callback: (List<StationData>?, String?) -> Unit
+    ) {
         viewModelScope.launch {
             try {
-                _errorMessage.value = null
-                val result = db.collection("stations").get().await()
-
-                val stationsList = result.documents.mapNotNull { document ->
-                    try {
-                        // Попытка десериализации. Предполагаем, что поле 'id' в Firestore - Long.
-                        val station: StationData? = document.toObject(StationData::class.java)
-                        station?.copy(id = document.getLong("id") ?: 0L) // Явно получаем Long 'id'
-                    } catch (e: Exception) {
-                        Log.e("StationViewModel", "Ошибка десериализации станции ${document.id}", e)
-                        null
-                    }
+                val snapshot = db.collection("stations").get().await()
+                val stations = snapshot.documents.mapNotNull { document ->
+                    document.toObject<StationData>()?.copy(documentId = document.id)
                 }
-                _stations.value = stationsList
-                onComplete(true)
+                callback(stations, null)
             } catch (e: Exception) {
-                _errorMessage.value = e.message
-                Log.e("StationViewModel", "Ошибка загрузки списка станций", e)
-                onComplete(false)
+                Log.e(TAG, "Error loading stations", e)
+                callback(null, e.message)
             }
         }
     }
 
-    // Функция поиска станции по ID
-    fun searchStationById(stationId: Long) {
+    /**
+     * Загружает данные конкретной станции по её ID.
+     * @param stationId ID станции (Long).
+     * @param callback Функция обратного вызова. Принимает данные станции (StationData?) и сообщение об ошибке (String?).
+     */
+    fun loadStation(
+        stationId: Long,
+        callback: (StationData?, String?) -> Unit
+    ) {
         viewModelScope.launch {
             try {
-                _errorMessage.value = null
-                _searchResult.value = null
-
-                // Ищем по полю 'id' (Long) или по ID документа (String)
                 val querySnapshot = db.collection("stations")
-                    .whereEqualTo("id", stationId) // Поиск по полю 'id' (Long)
+                    .whereEqualTo("id", stationId)
                     .limit(1)
                     .get()
                     .await()
 
                 if (!querySnapshot.isEmpty) {
-                    val doc = querySnapshot.documents.first()
-                    val station: StationData? = doc.toObject(StationData::class.java)?.copy(id = stationId)
-                    _searchResult.value = station
+                    val document = querySnapshot.documents.first()
+                    val station = document.toObject<StationData>()?.copy(documentId = document.id)
+                    callback(station, null)
                 } else {
-                    // Если не найдено по полю 'id', ищем по ID документа (String)
-                    val documentSnapshot = db.collection("stations").document(stationId.toString()).get().await()
-                    if (documentSnapshot.exists()) {
-                        val station: StationData? = documentSnapshot.toObject(StationData::class.java)?.copy(id = stationId)
-                        _searchResult.value = station
-                    } else {
-                        _searchResult.value = null
-                        _errorMessage.value = "Станция не найдена"
-                    }
+                    callback(null, "Станция с ID $stationId не найдена")
                 }
             } catch (e: Exception) {
-                _errorMessage.value = e.message
-                Log.e("StationViewModel", "Ошибка поиска станции", e)
-                _searchResult.value = null
+                Log.e(TAG, "Error loading station with id $stationId", e)
+                callback(null, e.message)
             }
         }
     }
 
-    // Загрузка конкретной станции с комментариями
-    fun loadStation(stationId: Long) { // Принимаем Long
+    /**
+     * Помечает станцию как обслуженную.
+     * @param stationId ID станции (Long).
+     * @param commentText Текст комментария (String?).
+     * @param callback Функция обратного вызова. Принимает сообщение об ошибке (String?).
+     */
+    fun markAsServiced(
+        stationId: Long,
+        commentText: String?,
+        callback: (String?) -> Unit
+    ) {
         viewModelScope.launch {
             try {
-                _errorMessage.value = null
-                // Ищем по полю 'id' (Long) или по ID документа (String)
+                // Найдем ссылку на документ станции
                 val querySnapshot = db.collection("stations")
-                    .whereEqualTo("id", stationId) // Поиск по полю 'id' (Long)
+                    .whereEqualTo("id", stationId)
                     .limit(1)
                     .get()
                     .await()
 
-                val documentSnapshot = if (!querySnapshot.isEmpty) {
-                    querySnapshot.documents.first()
+                val stationRef = if (!querySnapshot.isEmpty) {
+                    db.collection("stations").document(querySnapshot.documents.first().id)
                 } else {
-                    // Если не найдено по полю 'id', ищем по ID документа (String)
-                    db.collection("stations").document(stationId.toString()).get().await()
+                    // Если документ не найден по id, создаем ссылку по строковому представлению id
+                    // (на случай, если id хранится как имя документа, хотя это маловероятно при авто-ID)
+                    db.collection("stations").document(stationId.toString())
                 }
 
-                if (documentSnapshot.exists()) {
-                    val station: StationData? = documentSnapshot.toObject(StationData::class.java)?.copy(id = stationId)
+                // Подготавливаем данные для обновления
+                val updateData = hashMapOf<String, Any?>(
+                    "serviced" to true,
+                    "servicedBy" to currentUserPhone,
+                    "servicedByName" to currentUserPhone, // Можно заменить на настоящее имя
+                    "servicedDate" to Timestamp(Date()),
+                    "lastComment" to (commentText ?: "")
+                )
 
-                    if (station != null) {
-                        // Загружаем комментарии
-                        val commentsResult = db.collection("stations").document(documentSnapshot.id)
-                            .collection("comments")
-                            .orderBy("timestamp")
+                // Обновляем статус станции
+                stationRef.update(updateData).await()
+
+                // Добавляем комментарий в подколлекцию, если текст не пустой
+                if (!commentText.isNullOrBlank()) {
+                    val commentRef = stationRef.collection("comments").document()
+                    val comment = mapOf(
+                        "text" to commentText,
+                        "userId" to currentUserPhone,
+                        "userName" to currentUserPhone, // Можно заменить на настоящее имя
+                        "timestamp" to Date()
+                    )
+                    commentRef.set(comment).await()
+                }
+
+                // Перезагружаем станцию, чтобы получить обновленные данные
+                loadStation(stationId, callback = { _, _ -> callback(null) })
+            } catch (e: Exception) {
+                Log.e(TAG, "Error marking station as serviced", e)
+                callback(e.message)
+            }
+        }
+    }
+
+    /**
+     * Обновляет статус срочности станции.
+     * @param stationId ID станции (Long).
+     * @param isUrgent Новый статус срочности (Boolean).
+     * @param callback Функция обратного вызова. Принимает сообщение об ошибке (String?).
+     */
+    fun updateUrgentStatus(
+        stationId: Long,
+        isUrgent: Boolean,
+        callback: (String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                // Найдем ссылку на документ станции
+                val querySnapshot = db.collection("stations")
+                    .whereEqualTo("id", stationId)
+                    .limit(1)
+                    .get()
+                    .await()
+
+                val stationRef = if (!querySnapshot.isEmpty) {
+                    db.collection("stations").document(querySnapshot.documents.first().id)
+                } else {
+                    db.collection("stations").document(stationId.toString())
+                }
+
+                // Обновляем поле urgent
+                stationRef.update("urgent", isUrgent).await()
+                callback(null)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating urgent status", e)
+                callback(e.message)
+            }
+        }
+    }
+
+
+    /**
+     * Обновляет информацию о доверенном лице станции.
+     * @param stationId ID станции (Long).
+     * @param fio ФИО доверенного лица (String).
+     * @param phone Телефон доверенного лица (String).
+     * @param callback Функция обратного вызова. Принимает сообщение об ошибке (String?).
+     */
+    fun updateTrustedPerson(
+        stationId: Long,
+        fio: String,
+        phone: String,
+        callback: (String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                // Найдем ссылку на документ станции
+                val querySnapshot = db.collection("stations")
+                    .whereEqualTo("id", stationId)
+                    .limit(1)
+                    .get()
+                    .await()
+
+                val stationRef = if (!querySnapshot.isEmpty) {
+                    db.collection("stations").document(querySnapshot.documents.first().id)
+                } else {
+                    db.collection("stations").document(stationId.toString())
+                }
+
+                // Обновляем поля responsibleName и responsiblePhone
+                val updateData = hashMapOf<String, Any>(
+                    "responsibleName" to fio,
+                    "responsiblePhone" to phone
+                )
+                stationRef.update(updateData).await()
+                callback(null)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating trusted person", e)
+                callback(e.message)
+            }
+        }
+    }
+
+    // --- Методы для работы с комментариями ---
+
+    /**
+     * Загружает комментарии для конкретной станции.
+     * @param stationId ID станции (Long).
+     * @param callback Функция обратного вызова. Принимает список комментариев (List<Map<String, Any?>>) и сообщение об ошибке (String?).
+     */
+    fun loadComments(
+        stationId: Long,
+        callback: (List<Map<String, Any?>>?, String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                // Найдем документ станции
+                val querySnapshot = db.collection("stations")
+                    .whereEqualTo("id", stationId)
+                    .limit(1)
+                    .get()
+                    .await()
+
+                if (!querySnapshot.isEmpty) {
+                    val stationDoc = querySnapshot.documents.first()
+                    // Получаем подколлекцию комментариев
+                    val commentsSnapshot = stationDoc.reference.collection("comments")
+                        .orderBy("timestamp") // Сортировка по времени
+                        .get()
+                        .await()
+                    val comments = commentsSnapshot.documents.map { it.data ?: emptyMap() }
+                    callback(comments, null)
+                } else {
+                    callback(null, "Станция с ID $stationId не найдена для загрузки комментариев")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading comments for station $stationId", e)
+                callback(null, e.message)
+            }
+        }
+    }
+
+    /**
+     * Добавляет новый комментарий к станции.
+     * @param stationId ID станции (Long).
+     * @param text Текст комментария (String).
+     * @param callback Функция обратного вызова. Принимает сообщение об ошибке (String?).
+     */
+    fun addComment(
+        stationId: Long,
+        text: String,
+        callback: (String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                // Найдем документ станции
+                val querySnapshot = db.collection("stations")
+                    .whereEqualTo("id", stationId)
+                    .limit(1)
+                    .get()
+                    .await()
+
+                if (!querySnapshot.isEmpty) {
+                    val stationDoc = querySnapshot.documents.first()
+                    val stationRef = stationDoc.reference
+
+                    // Создаем новый комментарий
+                    val newComment = hashMapOf(
+                        "text" to text,
+                        "userId" to currentUserPhone,
+                        "userName" to currentUserPhone, // Можно заменить на настоящее имя
+                        "timestamp" to Date()
+                    )
+
+                    // Добавляем комментарий в подколлекцию
+                    val commentRef = stationRef.collection("comments").document()
+                    commentRef.set(newComment).await()
+
+                    // Обновляем поле lastComment в основном документе станции
+                    stationRef.update("lastComment", text).await()
+
+                    callback(null)
+                } else {
+                    callback("Станция с ID $stationId не найдена для добавления комментария")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error adding comment to station $stationId", e)
+                callback(e.message)
+            }
+        }
+    }
+
+    // --- Методы для работы с несколькими станциями ---
+
+    /**
+     * Помечает несколько станций как обслуженные.
+     * @param stationIds Список ID станций (List<Long>).
+     * @param commentText Текст комментария (String?).
+     * @param callback Функция обратного вызова. Принимает сообщение об ошибке (String?).
+     */
+    fun markMultipleAsServiced(
+        stationIds: List<Long>,
+        commentText: String?,
+        callback: (String?) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                // Создаем список Deferred задач для поиска документов
+                val deferredRefs = stationIds.map { stationId ->
+                    async {
+                        val querySnapshot = db.collection("stations")
+                            .whereEqualTo("id", stationId)
+                            .limit(1)
                             .get()
                             .await()
-                        val commentsList = commentsResult.documents.mapNotNull { commentDoc ->
-                            val comment: Comment? = commentDoc.toObject(Comment::class.java)
-                            if (comment != null) {
-                                comment.copy(id = commentDoc.id)
-                            } else {
-                                null
-                            }
+                        if (!querySnapshot.isEmpty) {
+                            querySnapshot.documents.first().id to db.collection("stations").document(querySnapshot.documents.first().id)
+                        } else {
+                            stationId.toString() to db.collection("stations").document(stationId.toString())
                         }
-
-                        _station.value = station.copy(comments = commentsList)
-                    } else {
-                        _errorMessage.value = "Ошибка десериализации данных станции"
                     }
-                } else {
-                    _errorMessage.value = "Станция не найдена"
-                }
-            } catch (e: Exception) {
-                _errorMessage.value = e.message
-                Log.e("StationViewModel", "Error loading station", e)
-            }
-        }
-    }
-
-    // Обновление статуса "Срочно/Хорошо"
-    fun updateUrgentStatus(stationId: Long, isUrgent: Boolean, callback: (String?) -> Unit) { // Принимаем Long
-        viewModelScope.launch {
-            try {
-                // Найдем документ по stationId (Long)
-                val querySnapshot = db.collection("stations")
-                    .whereEqualTo("id", stationId)
-                    .limit(1)
-                    .get()
-                    .await()
-
-                val documentRef = if (!querySnapshot.isEmpty) {
-                    db.collection("stations").document(querySnapshot.documents.first().id)
-                } else {
-                    db.collection("stations").document(stationId.toString())
                 }
 
-                documentRef.update("urgent", isUrgent).await()
-                _station.value = _station.value?.copy(urgent = isUrgent)
-                callback(null)
-            } catch (e: Exception) {
-                callback(e.message)
-                Log.e("StationViewModel", "Error updating urgent status", e)
-            }
-        }
-    }
+                // Дожидаемся завершения всех задач поиска
+                val stationRefs = deferredRefs.awaitAll().associate { it }
 
-    // Отметить станцию как обслуженную
-    fun markAsServiced(stationId: Long, commentText: String, authorName: String, callback: (String?) -> Unit) { // Принимаем Long
-        viewModelScope.launch {
-            try {
+                // Создаем batch для обновления
                 val batch = db.batch()
 
-                // Найдем документ по stationId (Long)
-                val querySnapshot = db.collection("stations")
-                    .whereEqualTo("id", stationId)
-                    .limit(1)
-                    .get()
-                    .await()
-
-                val stationRef = if (!querySnapshot.isEmpty) {
-                    db.collection("stations").document(querySnapshot.documents.first().id)
-                } else {
-                    db.collection("stations").document(stationId.toString())
-                }
-
-                batch.update(stationRef, mapOf(
-                    "serviced" to true,
-                    "servicedBy" to authorName,
-                    "servicedDate" to Date()
-                ))
-
-                if (commentText.isNotBlank()) {
-                    val commentRef = stationRef.collection("comments").document()
-                    val comment = Comment(
-                        id = commentRef.id,
-                        userId = authorName,
-                        userName = authorName,
-                        text = commentText,
-                        timestamp = Date()
+                // Добавляем операции обновления в batch
+                stationRefs.values.forEach { stationRef ->
+                    val updateData = hashMapOf<String, Any?>(
+                        "serviced" to true,
+                        "servicedBy" to currentUserPhone,
+                        "servicedByName" to currentUserPhone,
+                        "servicedDate" to Timestamp(Date()),
+                        "lastComment" to (commentText ?: "")
                     )
-                    batch.set(commentRef, comment)
+                    batch.update(stationRef, updateData)
+
+                    // Добавляем комментарий в подколлекцию, если текст не пустой
+                    if (!commentText.isNullOrBlank()) {
+                        val commentRef = stationRef.collection("comments").document()
+                        val comment = mapOf(
+                            "text" to commentText,
+                            "userId" to currentUserPhone,
+                            "userName" to currentUserPhone,
+                            "timestamp" to Date()
+                        )
+                        batch.set(commentRef, comment)
+                    }
                 }
 
+                // Выполняем batch
                 batch.commit().await()
-                loadStation(stationId) // Перезагружаем станцию с новыми комментариями
                 callback(null)
             } catch (e: Exception) {
+                Log.e(TAG, "Error marking multiple stations as serviced", e)
                 callback(e.message)
-                Log.e("StationViewModel", "Error marking station as serviced", e)
-            }
-        }
-    }
-
-    // Обновить информацию о доверенном лице
-    fun updateTrustedPerson(stationId: Long, fio: String, phone: String, callback: (String?) -> Unit) { // Принимаем Long
-        viewModelScope.launch {
-            try {
-                // Найдем документ по stationId (Long)
-                val querySnapshot = db.collection("stations")
-                    .whereEqualTo("id", stationId)
-                    .limit(1)
-                    .get()
-                    .await()
-
-                val stationRef = if (!querySnapshot.isEmpty) {
-                    db.collection("stations").document(querySnapshot.documents.first().id)
-                } else {
-                    db.collection("stations").document(stationId.toString())
-                }
-
-                stationRef.update(
-                    mapOf(
-                        "trustedPersonFio" to fio,
-                        "trustedPersonPhone" to phone
-                    )
-                ).await()
-                _station.value = _station.value?.copy(
-                    trustedPersonFio = fio,
-                    trustedPersonPhone = phone
-                )
-                callback(null)
-            } catch (e: Exception) {
-                callback(e.message)
-                Log.e("StationViewModel", "Error updating trusted person", e)
-            }
-        }
-    }
-
-    // Загрузка фото
-    fun uploadPhoto(data: ByteArray, stationId: Long, callback: (String?, String?) -> Unit) {
-        viewModelScope.launch {
-            try {
-                val storage = FirebaseStorage.getInstance()
-                val storageRef = storage.reference.child("stations/${stationId}_${System.currentTimeMillis()}.jpg")
-
-                // Используем параметр data
-                val uploadTask = storageRef.putBytes(data)
-                val url = uploadTask.await().storage.downloadUrl.await().toString()
-                callback(url, null)
-            } catch (e: Exception) {
-                callback(null, e.message)
-                Log.e("StationViewModel", "Error uploading photo", e)
-            }
-        }
-    }
-
-    // Обновление URL фото в Firestore
-    fun updatePhotoUrl(stationId: Long, photoUrl: String, callback: (String?) -> Unit) { // Принимаем Long
-        viewModelScope.launch {
-            try {
-                // Найдем документ по stationId (Long)
-                val querySnapshot = db.collection("stations")
-                    .whereEqualTo("id", stationId)
-                    .limit(1)
-                    .get()
-                    .await()
-
-                val stationRef = if (!querySnapshot.isEmpty) {
-                    db.collection("stations").document(querySnapshot.documents.first().id)
-                } else {
-                    db.collection("stations").document(stationId.toString())
-                }
-
-                val currentPhotoUrls = stationRef.get().await().get("photoUrls") as? List<String> ?: emptyList()
-                val updatedPhotoUrls = currentPhotoUrls + photoUrl
-
-                stationRef.update("photoUrls", updatedPhotoUrls).await()
-                _station.value = _station.value?.copy(photoUrls = updatedPhotoUrls)
-                callback(null)
-            } catch (e: Exception) {
-                callback(e.message)
-                Log.e("StationViewModel", "Error updating photo URL", e)
-            }
-        }
-    }
-
-    // Сбросить статус обслуживания
-    fun resetServiceStatus(stationId: Long, callback: (String?) -> Unit) { // Принимаем Long
-        viewModelScope.launch {
-            try {
-                val batch = db.batch()
-
-                // Найдем документ по stationId (Long)
-                val querySnapshot = db.collection("stations")
-                    .whereEqualTo("id", stationId)
-                    .limit(1)
-                    .get()
-                    .await()
-
-                val stationRef = if (!querySnapshot.isEmpty) {
-                    db.collection("stations").document(querySnapshot.documents.first().id)
-                } else {
-                    db.collection("stations").document(stationId.toString())
-                }
-
-                batch.update(stationRef, mapOf(
-                    "serviced" to false,
-                    "servicedBy" to null,
-                    "servicedDate" to null
-                ))
-
-                val commentsSnapshot = stationRef.collection("comments").get().await()
-                for (doc in commentsSnapshot.documents) {
-                    batch.delete(doc.reference)
-                }
-
-                batch.commit().await()
-                loadStation(stationId) // Перезагружаем станцию
-                callback(null)
-            } catch (e: Exception) {
-                callback(e.message)
-                Log.e("StationViewModel", "Error resetting service status", e)
             }
         }
     }

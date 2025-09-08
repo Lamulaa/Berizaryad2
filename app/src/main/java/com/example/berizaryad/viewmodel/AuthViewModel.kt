@@ -2,88 +2,72 @@
 package com.example.berizaryad.viewmodel
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.FirebaseUser
-import com.google.firebase.firestore.FirebaseFirestore
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
+import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
+import com.google.firebase.auth.FirebaseAuthUserCollisionException
+import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 
-data class UserData(
-    val phone: String,
-    val fio: String?
-)
+class AuthViewModel : ViewModel() {
+    private val auth: FirebaseAuth = FirebaseAuth.getInstance()
 
-class AuthViewModel(private val auth: FirebaseAuth, private val db: FirebaseFirestore) : ViewModel() {
+    // Свойство для получения текущего пользователя
+    val currentUser get() = auth.currentUser
 
-    private val _currentUser = MutableStateFlow<UserData?>(null)
-    val currentUser: StateFlow<UserData?> = _currentUser
-
-    // Добавляем слушатель изменений состояния аутентификации
-    private val authStateListener = FirebaseAuth.AuthStateListener { firebaseAuth ->
-        val user = firebaseAuth.currentUser
-        if (user != null) {
-            // Пользователь вошел
-            loadUserData(user)
-        } else {
-            // Пользователь вышел
-            _currentUser.value = null
-        }
-    }
-
-    init {
-        // Регистрируем слушатель при инициализации ViewModel
-        auth.addAuthStateListener(authStateListener)
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        // Отменяем регистрацию слушателя при уничтожении ViewModel
-        auth.removeAuthStateListener(authStateListener)
-    }
-
-    private fun loadUserData(user: FirebaseUser) {
-        viewModelScope.launch {
-            try {
-                val phone = user.email?.substringBefore("@") ?: ""
-                val document = db.collection("users").document(phone).get().await()
-                if (document.exists()) {
-                    val fio = document.getString("fio")
-                    _currentUser.value = UserData(phone, fio)
+    /**
+     * Регистрация нового пользователя.
+     * @param email Email пользователя (формат: 7XXXXXXXXXX@example.com).
+     * @param password Пароль пользователя.
+     * @param callback Функция обратного вызова. Принимает null при успехе или строку с ошибкой.
+     */
+    fun register(email: String, password: String, callback: (String?) -> Unit) {
+        auth.createUserWithEmailAndPassword(email, password)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    // Регистрация успешна
+                    callback(null)
                 } else {
-                    // Если документа нет, можно создать или оставить null
-                    _currentUser.value = UserData(phone, "")
+                    // Обработка ошибок регистрации
+                    val exception = task.exception
+                    val errorMessage = when (exception) {
+                        is FirebaseAuthWeakPasswordException -> "Пароль слишком слабый."
+                        is FirebaseAuthInvalidCredentialsException -> "Некорректный email."
+                        is FirebaseAuthUserCollisionException -> "Пользователь с таким email уже существует."
+                        else -> exception?.message ?: "Неизвестная ошибка регистрации."
+                    }
+                    callback(errorMessage)
                 }
-            } catch (e: Exception) {
-                // Обработка ошибки загрузки данных
-                _currentUser.value = null
             }
-        }
     }
 
-    fun updateFio(fio: String, callback: () -> Unit) {
-        viewModelScope.launch {
-            val phone = _currentUser.value?.phone
-            if (phone != null) {
-                try {
-                    db.collection("users").document(phone).update("fio", fio).await()
-                    _currentUser.value = _currentUser.value?.copy(fio = fio)
-                    callback()
-                } catch (e: Exception) {
-                    // Обработка ошибки
-                    callback()
+    /**
+     * Вход пользователя в систему.
+     * @param email Email пользователя (формат: 7XXXXXXXXXX@example.com).
+     * @param password Пароль пользователя.
+     * @param callback Функция обратного вызова. Принимает null при успехе или строку с ошибкой.
+     */
+    fun login(email: String, password: String, callback: (String?) -> Unit) {
+        auth.signInWithEmailAndPassword(email, password)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    // Вход успешен
+                    callback(null)
+                } else {
+                    // Обработка ошибок входа
+                    val exception = task.exception
+                    val errorMessage = when (exception) {
+                        is FirebaseAuthInvalidCredentialsException -> "Неверный email или пароль."
+                        is FirebaseAuthUserCollisionException -> "Аккаунт с этим email заблокирован."
+                        else -> exception?.message ?: "Неизвестная ошибка входа."
+                    }
+                    callback(errorMessage)
                 }
-            } else {
-                callback()
             }
-        }
     }
 
+    /**
+     * Выход пользователя из системы.
+     */
     fun logout() {
-        // Выход из Firebase. Слушатель authStateListener обновит _currentUser
         auth.signOut()
-        // Навигация должна быть обработана в UI слое (например, в ProfileScreen)
     }
 }

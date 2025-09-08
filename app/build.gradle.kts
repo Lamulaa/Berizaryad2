@@ -1,13 +1,13 @@
+// Berizaryad/app/build.gradle.kts
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("org.jetbrains.kotlin.plugin.compose") // <-- Добавлено
-    id("com.google.gms.google-services")
+    id("com.google.gms.google-services") // Если используется Firebase
 }
 
 android {
     namespace = "com.example.berizaryad"
-    compileSdk = 34
+    compileSdk = 34 // Убедитесь, что это соответствует версии в project build.gradle.kts
 
     defaultConfig {
         applicationId = "com.example.berizaryad"
@@ -38,12 +38,11 @@ android {
     kotlinOptions {
         jvmTarget = "1.8"
     }
-    // Удалите блок composeOptions, так как теперь это управляется плагином
-    // composeOptions {
-    //     kotlinCompilerExtensionVersion = "1.5.1"
-    // }
     buildFeatures {
         compose = true
+    }
+    composeOptions {
+        kotlinCompilerExtensionVersion = "1.5.1" // Убедитесь, что версия совместима с вашей версией Kotlin
     }
     packaging {
         resources {
@@ -53,13 +52,8 @@ android {
 }
 
 dependencies {
-    // Core Android/Kotlin
-    implementation("androidx.core:core-ktx:1.10.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.1")
-    implementation("androidx.activity:activity-compose:1.7.2")
-
-    // Compose BOM для implementation
-    implementation(platform("androidx.compose:compose-bom:2024.02.00"))
+    // Импорты для BOM и других библиотек
+    implementation(platform("androidx.compose:compose-bom:2023.08.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -67,35 +61,32 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")
     implementation("androidx.compose.material:material-icons-extended")
 
+    // Core Android KTX
+    implementation("androidx.core:core-ktx:1.10.1")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.1")
+    implementation("androidx.activity:activity-compose:1.7.2")
+
+    testImplementation("junit:junit:4.13.2") // Для unit-тестов на JVM
+    androidTestImplementation("androidx.test.ext:junit:1.1.5") // Для инструментальных тестов
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1") // Для инструментальных тестов
+
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.7.1")
 
-    // ViewModel & Lifecycle
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.6.1")
-
     // Firebase
-    implementation(platform("com.google.firebase:firebase-bom:32.2.3"))
-    implementation("com.google.firebase:firebase-auth-ktx")
-    implementation("com.google.firebase:firebase-firestore-ktx")
-    implementation("com.google.firebase:firebase-storage-ktx")
+    implementation("com.google.firebase:firebase-auth-ktx:22.3.1")
+    implementation("com.google.firebase:firebase-firestore-ktx:24.9.1")
+    implementation("com.google.firebase:firebase-storage-ktx:20.3.0")
 
     // Coil для загрузки изображений
     implementation("io.coil-kt:coil-compose:2.4.0")
 
-    // Material Design для View System
-    implementation("com.google.android.material:material:1.9.0")
-
-    // Тестирование
-    testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-
-    // ВАЖНО: Используйте BOM и для тестовых зависимостей Compose
-    androidTestImplementation(platform("androidx.compose:compose-bom:2024.02.00")) // <-- Добавлено
-    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-
-    debugImplementation(platform("androidx.compose:compose-bom:2024.02.00")) // <-- Добавлено
-    debugImplementation("androidx.compose.ui:ui-tooling")
-    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    // Для тестирования (по желанию)
+    // testImplementation("junit:junit:4.13.2")
+    // androidTestImplementation("androidx.test.ext:junit:1.1.5")
+    // androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+    // androidTestImplementation(platform("androidx.compose:compose-bom:2023.08.00"))
+    // androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    // debugImplementation("androidx.compose.ui:ui-tooling")
+    // debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
